@@ -1,110 +1,37 @@
 <?php
-
-//if (session_status() !== PHP_SESSION_ACTIVE) {session_start();}
-if(session_id() == '' || !isset($_SESSION)){session_start();}
-
-if(!isset($_SESSION["username"])){
-  header("location:index.php");
-}
-include 'config.php';
+declare(strict_types=1);
+require __DIR__ . '/includes/bootstrap.php';
+$u = require_login();
+$orders = db_all('SELECT id, product_code, product_name, price, units, total, date FROM orders WHERE email = ? ORDER BY date DESC, id DESC', 's', [$u['email']]);
+$pageTitle = 'Mes commandes';
+$active = 'orders';
+require __DIR__ . '/includes/header.php';
 ?>
-
-<!doctype html>
-<html class="no-js" lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>My Orders || KOSMETIK</title>
-    <link rel="stylesheet" href="css/foundation.css" />
-    <script src="js/vendor/modernizr.js"></script>
-  </head>
-  <body>
-
-    <nav class="top-bar" data-topbar role="navigation">
-      <ul class="title-area">
-        <li class="name">
-          <h1><a href="index.php">KOSMETIK</a></h1>
-        </li>
-        <li class="toggle-topbar menu-icon"><a href="#"><span></span></a></li>
-      </ul>
-
-      <section class="top-bar-section">
-      <!-- Right Nav Section -->
-        <ul class="right">
-          <li><a href="about.php">About</a></li>
-          <li><a href="products.php">Products</a></li>
-          <li><a href="cart.php">View Cart</a></li>
-          <li class="active"><a href="orders.php">My Orders</a></li>
-          <li><a href="contact.php">Contact</a></li>
-          <?php
-
-          if(isset($_SESSION['username'])){
-            echo '<li><a href="account.php">My Account</a></li>';
-            echo '<li><a href="logout.php">Log Out</a></li>';
-          }
-          else{
-            echo '<li><a href="login.php">Log In</a></li>';
-            echo '<li><a href="register.php">Register</a></li>';
-          }
-          ?>
-        </ul>
-      </section>
-    </nav>
-
-
-
-
-    <div class="row" style="margin-top:10px;">
-      <div class="large-12">
-        <h3>My Orders</h3>
-        <hr>
-
-        <?php
-          $user = $_SESSION["username"];
-          $result = $mysqli->query("SELECT * from orders where email='".$user."'");
-          if($result) {
-            while($obj = $result->fetch_object()) {
-              //echo '<div class="large-6">';
-              echo '<p><h4>Order ID ->'.$obj->id.'</h4></p>';
-              echo '<p><strong>Date of Purchase</strong>: '.$obj->date.'</p>';
-              echo '<p><strong>Product Code</strong>: '.$obj->product_code.'</p>';
-              echo '<p><strong>Product Name</strong>: '.$obj->product_name.'</p>';
-              echo '<p><strong>Price Per Unit</strong>: '.$obj->price.'</p>';
-              echo '<p><strong>Units Bought</strong>: '.$obj->units.'</p>';
-              echo '<p><strong>Total Cost</strong>: '.$currency.$obj->total.'</p>';
-              //echo '</div>';
-              //echo '<div class="large-6">';
-              //echo '<img src="images/products/baume.jpg">';
-              //echo '</div>';
-              echo '<p><hr></p>';
-
-            }
-          }
-        ?>
-      </div>
+<section class="container page">
+  <div class="page-head"><h1>Mes commandes</h1></div>
+  <?php if (!$orders): ?>
+    <div class="card empty">
+      <p>Vous n'avez encore passé aucune commande.</p>
+      <a class="btn" href="products.php">Découvrir nos produits</a>
     </div>
-
-
-
-
-    <div class="row" style="margin-top:10px;">
-      <div class="small-12">
-
-        <footer style="margin-top:10px;">
-           <p style="text-align:center; font-size:0.8em;">&copy; KOSMETIK. All Rights Reserved.</p>
-        </footer>
-
-      </div>
+  <?php else: ?>
+    <div class="card table-wrap">
+      <table class="table">
+        <thead><tr><th>N°</th><th>Date</th><th>Produit</th><th class="num">Prix unitaire</th><th class="num">Qté</th><th class="num">Total</th></tr></thead>
+        <tbody>
+          <?php foreach ($orders as $o): ?>
+            <tr>
+              <td data-label="N°">#<?= (int) $o['id'] ?></td>
+              <td data-label="Date"><?= e(date('d/m/Y H:i', strtotime($o['date']))) ?></td>
+              <td data-label="Produit"><?= e($o['product_name']) ?> <span class="muted small"><?= e($o['product_code']) ?></span></td>
+              <td data-label="Prix unitaire" class="num"><?= e(money($o['price'])) ?></td>
+              <td data-label="Qté" class="num"><?= (int) $o['units'] ?></td>
+              <td data-label="Total" class="num"><strong><?= e(money($o['total'])) ?></strong></td>
+            </tr>
+          <?php endforeach; ?>
+        </tbody>
+      </table>
     </div>
-
-
-
-
-
-    <script src="js/vendor/jquery.js"></script>
-    <script src="js/foundation.min.js"></script>
-    <script>
-      $(document).foundation();
-    </script>
-  </body>
-</html>
+  <?php endif; ?>
+</section>
+<?php require __DIR__ . '/includes/footer.php'; ?>

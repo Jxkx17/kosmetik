@@ -1,0 +1,6 @@
+Options -Indexes
+# Bloquer l'accès direct aux fichiers internes
+RedirectMatch 404 ^/(?:.*/)?(includes|database|vendor|_backup_original)(/|$)
+<FilesMatch "\.(sql|lock|json|md|env|log)$|^\.">
+  Require all denied
+</FilesMatch>

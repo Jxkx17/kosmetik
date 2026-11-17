@@ -1,71 +1,54 @@
 <?php
-//if (session_status() !== PHP_SESSION_ACTIVE) {session_start();}
-if(session_id() == '' || !isset($_SESSION)){session_start();}
+declare(strict_types=1);
+require __DIR__ . '/includes/bootstrap.php';
+require_post();
+$u = require_login();
 
-include 'config.php';
+$cart = cart();
+if (!$cart) {
+    redirect('cart.php');
+}
 
-if(isset($_SESSION['cart'])) {
+$db = db();
+$db->begin_transaction();
+try {
+    $ordered = [];
+    foreach ($cart as $id => $quantity) {
+        $id = (int) $id;
+        $quantity = (int) $quantity;
+        if ($quantity < 1) continue;
 
-  $total = 0;
-
-  foreach($_SESSION['cart'] as $product_id => $quantity) {
-
-    $result = $mysqli->query("SELECT * FROM products WHERE id = ".$product_id);
-
-    if($result){
-
-      if($obj = $result->fetch_object()) {
-
-
-        $cost = $obj->price * $quantity;
-
-        $user = $_SESSION["username"];
-
-        $query = $mysqli->query("INSERT INTO orders (product_code, product_name, product_desc, price, units, total, email) VALUES('$obj->product_code', '$obj->product_name', '$obj->product_desc', $obj->price, $quantity, $cost, '$user')");
-
-        if($query){
-          $newqty = $obj->qty - $quantity;
-          if($mysqli->query("UPDATE products SET qty = ".$newqty." WHERE id = ".$product_id)){
-
-          }
+        // Verrouille la ligne pour éviter la survente en cas de commandes simultanées
+        $p = db_one('SELECT id, product_code, product_name, product_desc, qty, price FROM products WHERE id = ? FOR UPDATE', 'i', [$id]);
+        if (!$p || (int) $p['qty'] < $quantity) {
+            $db->rollback();
+            flash('error', 'Stock insuffisant pour ' . ($p['product_name'] ?? 'un article') . '. Ajustez votre panier.');
+            redirect('cart.php');
         }
-
-        //send mail script
-        /*$query = $mysqli->query("SELECT * from orders order by date desc");
-        if($query){
-          while ($obj = $query->fetch_object()){
-            $subject = "Your Order ID ".$obj->id;
-            $message = "<html><body>";
-            $message .= '<p><h4>Order ID ->'.$obj->id.'</h4></p>';
-            $message .= '<p><strong>Date of Purchase</strong>: '.$obj->date.'</p>';
-            $message .= '<p><strong>Product Code</strong>: '.$obj->product_code.'</p>';
-            $message .= '<p><strong>Product Name</strong>: '.$obj->product_name.'</p>';
-            $message .= '<p><strong>Price Per Unit</strong>: '.$obj->price.'</p>';
-            $message .= '<p><strong>Units Bought</strong>: '.$obj->units.'</p>';
-            $message .= '<p><strong>Total Cost</strong>: '.$obj->total.'</p>';
-            $message .= "</body></html>";
-            $headers = "From: support@kosmetik.com";
-            $headers .= "MIME-Version: 1.0\r\n";
-            $headers .= "Content-Type: text/html; charset=ISO-8859-1\r\n";
-
-            $sent = mail($user, $subject, $message, $headers) ;
-            if($sent){
-              $message = "";
-            }
-            else {
-              echo 'Failure';
-            }
-          }
-        }*/
-
-
-
-      }
+        $cost = $p['price'] * $quantity;
+        db_query('INSERT INTO orders (product_code, product_name, product_desc, price, units, total, email) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            'sssdids', [$p['product_code'], $p['product_name'], $p['product_desc'], $p['price'], $quantity, $cost, $u['email']]);
+        db_query('UPDATE products SET qty = qty - ? WHERE id = ?', 'ii', [$quantity, $id]);
+        $ordered[] = [$p['product_name'], $quantity, $cost];
     }
-  }
+    $db->commit();
+} catch (Throwable $ex) {
+    $db->rollback();
+    throw $ex;
 }
 
 unset($_SESSION['cart']);
-header("location:success.php");
 
-?>
+// Reçu par e-mail (si PHPMailer est installé)
+require __DIR__ . '/includes/mailer.php';
+$body = '<h2>Merci pour votre commande</h2><ul>';
+$sum = 0;
+foreach ($ordered as [$name, $q, $c]) {
+    $body .= '<li>' . e($name) . ' × ' . (int) $q . ' — ' . e(money($c)) . '</li>';
+    $sum += $c;
+}
+$body .= '</ul><p><strong>Total : ' . e(money($sum)) . '</strong></p>';
+send_email($u['email'], 'Votre commande ' . $CONFIG['app_name'], $body);
+
+$_SESSION['success'] = 'order';
+redirect('success.php');

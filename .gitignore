@@ -1,0 +1,5 @@
+/vendor/
+/includes/config.local.php
+/_backup_original/
+*.log
+.env

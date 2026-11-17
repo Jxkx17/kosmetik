@@ -1,44 +1,50 @@
 <?php
+declare(strict_types=1);
+require __DIR__ . '/includes/bootstrap.php';
+require_post();
 
-//if (session_status() !== PHP_SESSION_ACTIVE) {session_start();}
-if(session_id() == '' || !isset($_SESSION)){session_start();}
+$email    = post_str('email');
+$password = (string) ($_POST['pwd'] ?? '');
+$_SESSION['old'] = ['email' => $email];
 
-include 'config.php';
-
-$username = $_POST["username"];
-$password = $_POST["pwd"];
-$flag = 'true';
-//$query = $mysqli->query("SELECT email, password from users");
-
-$result = $mysqli->query('SELECT id,email,password,fname,type from users order by id asc');
-
-if($result === FALSE){
-  die(mysql_error());
+// Limitation simple des tentatives (anti force brute)
+$lockedUntil = $_SESSION['login_locked_until'] ?? 0;
+if ($lockedUntil > time()) {
+    flash('error', 'Trop de tentatives. Réessayez dans ' . ceil(($lockedUntil - time()) / 60) . ' minute(s).');
+    redirect('login.php');
 }
 
-if($result){
-  while($obj = $result->fetch_object()){
-    if($obj->email === $username && $obj->password === $password) {
+$user = db_one('SELECT id, email, password, fname, type FROM users WHERE email = ?', 's', [$email]);
 
-      $_SESSION['username'] = $username;
-      $_SESSION['type'] = $obj->type;
-      $_SESSION['id'] = $obj->id;
-      $_SESSION['fname'] = $obj->fname;
-      header("location:index.php");
+$ok = false;
+if ($user) {
+    $stored = $user['password'];
+    if (password_get_info($stored)['algo'] !== null) {
+        $ok = password_verify($password, $stored);
     } else {
-
-        if($flag === 'true'){
-          redirect();
-          $flag = 'false';
-        }
+        // Ancien mot de passe en clair : vérifier puis migrer vers un hash.
+        $ok = hash_equals($stored, $password);
     }
-  }
+    if ($ok && (password_get_info($stored)['algo'] === null || password_needs_rehash($stored, PASSWORD_DEFAULT))) {
+        db_query('UPDATE users SET password = ? WHERE id = ?', 'si', [password_hash($password, PASSWORD_DEFAULT), $user['id']]);
+    }
+} else {
+    password_verify($password, password_hash('dummy', PASSWORD_DEFAULT)); // temps de réponse constant
 }
 
-function redirect() {
-  echo '<h1>Invalid Login! Redirecting...</h1>';
-  header("Refresh: 3; url=index.php");
+if (!$ok) {
+    $_SESSION['login_attempts'] = ($_SESSION['login_attempts'] ?? 0) + 1;
+    if ($_SESSION['login_attempts'] >= 5) {
+        $_SESSION['login_locked_until'] = time() + 300;
+        $_SESSION['login_attempts'] = 0;
+    }
+    flash('error', 'E-mail ou mot de passe incorrect.');
+    redirect('login.php');
 }
 
-
-?>
+login_user($user);
+unset($_SESSION['old']);
+flash('success', 'Bienvenue, ' . $user['fname'] . ' !');
+$next = $_SESSION['after_login'] ?? ($user['type'] === 'admin' ? 'admin.php' : 'products.php');
+unset($_SESSION['after_login']);
+redirect(in_array($next, ['cart.php', 'admin.php', 'products.php', 'orders.php'], true) ? $next : 'products.php');
